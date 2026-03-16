@@ -1,0 +1,255 @@
+---
+title: "Data Cleaning for Rehab Education Data"
+author: "Madeline Ratoza"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    theme: cosmo
+    code-fold: false
+    code-tools: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Welcome
+
+Messy data are part of real educational work. Whether you are reviewing assessment scores, attendance, course evaluations, or program outcomes, the data you receive are rarely analysis-ready. This lesson introduces basic principles of data cleaning using examples relevant to rehabilitation education.
+
+By the end of this lesson, you will be able to:
+
+-   identify common data quality problems in educational datasets
+-   inspect a dataset before beginning analysis
+-   rename variables to improve clarity
+-   handle missing values intentionally
+-   check for duplicates and inconsistent values
+-   create cleaned variables for simple analysis
+
+# Why Data Cleaning Matters
+
+In rehabilitation education, data often come from:
+
+-   exam exports
+-   LMS downloads
+-   course evaluation files
+-   student tracking spreadsheets
+-   clinical education records
+
+These datasets may contain missing values, inconsistent labels, extra spaces, duplicate rows, or unclear variable names. Cleaning helps ensure that your summaries, charts, and decisions are based on data that are interpretable and trustworthy.
+
+# Packages
+
+We will use tools from the **tidyverse**.
+
+```{r}
+library(tidyverse)
+```
+
+# Example Dataset
+
+In this lesson, we will create a small example dataset that looks like the kind of information a faculty member or program leader might review.
+
+```{r}
+rehab_data <- tibble(
+  student_id = c(1001, 1002, 1003, 1003, 1004, 1005, 1006, 1007),
+  pathway = c("Residential", "Hybrid", "Residential", "Residential", "Hybrid ", "hybrid", "Hybrid", "Residential"),
+  exam_score = c(84, 91, NA, NA, 76, 88, 94, 79),
+  attendance_rate = c(0.96, 0.88, 0.91, 0.91, NA, 0.85, 0.99, 0.92),
+  final_status = c("Pass", "Pass", "At Risk", "At Risk", "pass", "Pass", "Pass", "Pass "),
+  notes = c("", "needs follow-up", "missing exam", "missing exam", NA, "", "excellent", "")
+)
+
+rehab_data
+```
+
+# Step 1: Look at the Data First
+
+Before cleaning, inspect the dataset.
+
+```{r}
+glimpse(rehab_data)
+```
+
+A quick review shows several issues:
+
+-   `student_id` 1003 appears twice
+-   `pathway` values are inconsistent (`"Flex"`, `"Flex "`, `"flex"`)
+-   `final_status` values are inconsistent (`"Pass"`, `"pass"`, `"Pass "`)
+-   there are missing values in `exam_score`, `attendance_rate`, and `notes`
+
+# Step 2: Standardize Variable Names
+
+Sometimes imported datasets have inconsistent or hard-to-read names. A good goal is to use short, clear, lowercase variable names.
+
+Our example names are already relatively clean, but this is a good place to show the principle.
+
+```{r}
+clean_names_data <- rehab_data %>% 
+  rename(
+    status = final_status,
+    attendance = attendance_rate
+  )
+
+clean_names_data
+```
+
+# Step 3: Clean Text Values
+
+Educational data often contain extra spaces, inconsistent capitalization, or multiple spellings for the same category.
+
+We can clean those values using `str_trim()` and `str_to_title()`.
+
+```{r}
+clean_text_data <- clean_names_data %>% 
+  mutate(
+    pathway = str_trim(pathway),
+    pathway = str_to_title(pathway),
+    status = str_trim(status),
+    status = str_to_title(status)
+  )
+
+clean_text_data
+```
+
+Now the pathway and status values are more consistent.
+
+```{r}
+count(clean_text_data, pathway)
+count(clean_text_data, status)
+```
+
+# Step 4: Identify Missing Values
+
+Missing values are common and should be examined intentionally rather than ignored.
+
+```{r}
+colSums(is.na(clean_text_data))
+```
+
+This tells us how many missing values appear in each column.
+
+We can also filter to rows with missing exam scores.
+
+```{r}
+clean_text_data %>% 
+  filter(is.na(exam_score))
+```
+
+In real program data, you would ask:
+
+-   Is the value truly missing?
+-   Was the assessment not taken?
+-   Is the student withdrawn or incomplete?
+-   Does this need follow-up before analysis?
+
+# Step 5: Check for Duplicate Rows or IDs
+
+Duplicate values can distort summaries.
+
+Here we check for duplicated student IDs.
+
+```{r}
+clean_text_data %>% 
+  count(student_id) %>% 
+  filter(n > 1)
+```
+
+Student 1003 appears more than once. That may be correct or incorrect depending on the context. In this example, it suggests duplicate data entry.
+
+If we decide to keep only one row per student, we can do this:
+
+```{r}
+no_duplicates_data <- clean_text_data %>% 
+  distinct(student_id, .keep_all = TRUE)
+
+no_duplicates_data
+```
+
+# Step 6: Create Useful Derived Variables
+
+Once the data are cleaner, we can create variables that support interpretation.
+
+For example, we might create a flag for students scoring below 80.
+
+```{r}
+clean_rehab_data <- no_duplicates_data %>% 
+  mutate(
+    below_80 = if_else(exam_score < 80, "Yes", "No", missing = "Missing"),
+    attendance_band = case_when(
+      is.na(attendance) ~ "Missing",
+      attendance >= 0.95 ~ "High",
+      attendance >= 0.90 ~ "Moderate",
+      TRUE ~ "Low"
+    )
+  )
+
+clean_rehab_data
+```
+
+# Step 7: Summarize the Cleaned Data
+
+Now that the data are more consistent, we can produce simple summaries.
+
+```{r}
+clean_rehab_data %>% 
+  group_by(pathway) %>% 
+  summarize(
+    n_students = n(),
+    avg_exam_score = mean(exam_score, na.rm = TRUE),
+    avg_attendance = mean(attendance, na.rm = TRUE)
+  )
+```
+
+And we can look at counts for the new flag variables.
+
+```{r}
+count(clean_rehab_data, below_80)
+count(clean_rehab_data, attendance_band)
+```
+
+# A Simple Visualization
+
+```{r}
+ggplot(clean_rehab_data, aes(x = pathway, y = exam_score)) +
+  geom_boxplot() +
+  labs(
+    title = "Exam Scores by Pathway",
+    x = "Pathway",
+    y = "Exam Score"
+  )
+```
+
+# Key Takeaways
+
+Cleaning is not just a technical step. It is part of responsible data use.
+
+Before analyzing educational data, ask:
+
+-   Are the variable names clear?
+-   Are categories spelled consistently?
+-   Are there missing values that need interpretation?
+-   Are there duplicate records?
+-   Do I need to create cleaner variables for analysis?
+
+In many cases, the quality of your conclusions depends on the quality of your cleaning decisions.
+
+# Practice Activity
+
+Use the example dataset and try the following:
+
+1.  Count the number of students in each status category.
+2.  Filter to students with attendance below 0.90.
+3.  Create a new variable for exam performance bands such as `Below 80`, `80 to 89`, and `90+`.
+4.  Make a bar chart showing the number of students in each pathway.
+
+# Final Thoughts
+
+Data cleaning is one of the most practical skills in rehabilitation education analytics. Faculty and students do not need advanced programming to benefit from it. Even a few consistent cleaning steps can make educational data easier to understand, summarize, and use for decision-making.
+
+# Session Info
+
+**Audience:** Rehabilitation faculty, staff, and students beginning to work with educational data\
+**Skill level:** Beginner to early intermediate\
+**Primary focus:** Data inspection, cleaning, and preparation in R
